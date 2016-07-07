@@ -4,6 +4,7 @@ import datetime
 import json
 import mwparserfromhell
 import pytimeparse
+import pytz
 import pywikibot
 import re
 import sys
@@ -58,9 +59,17 @@ class SectionIdentifier:
         except StopIteration:
             return None
 
+def save_reminders(new_reminders):
+    current_reminders = []
+    with open(REMINDERS_FILE, "r") as reminders_file_read:
+        current_reminders = json.load(reminders_file_read)
+    with open(REMINDERS_FILE, "w") as reminders_file_write:
+        json.dump(current_reminders + new_reminders, reminders_file_write)
+        print("Dumped reminders to {}.".format(REMINDERS_FILE))
+
 def main():
-    print("Starting {} at {}".format(BOT_NAME,
-                                     datetime.datetime.utcnow().isoformat()))
+    print("Starting {}-read at {}".format(BOT_NAME,
+                                          datetime.datetime.utcnow().isoformat()))
 
     site = pywikibot.Site("en", "wikipedia")
     site.login()
@@ -83,7 +92,6 @@ def main():
                       notification.timestamp.strftime(SIGNATURE_TIMESTAMP_FORMAT)]
         has_line_parts = lambda line: all(x in line for x in line_parts)
         for each_line in filter(has_line_parts, page_content.splitlines()):
-            print("In inner loop")
             time_duration, note = parse_line(each_line, username)
 
             time_duration = parse_duration(time_duration)
@@ -92,17 +100,18 @@ def main():
             reminder_time = reminder_time.replace(second=0, minute=0)
 
             # We can't send reminders in the past
-            if reminder_time < datetime.datetime.now(): continue
+            if reminder_time < datetime.datetime.utcnow(): continue
 
             location = u"%s#%s" % (notification.page.title(withNamespace=True),
                                   section_identifier.lookup(each_line))
 
-            reminder = (username, location, notification.timestamp, reminder_time, note)
+            # Strip timezone information from notification timestamp
+            notification_timestamp = datetime.timedelta(minutes=0) + notification.timestamp
+            reminder = (username, location, notification_timestamp.isoformat(),
+                        reminder_time.isoformat(), note)
             new_reminders.append(reminder)
 
-    with open(REMINDERS_FILE, "w") as reminders_file:
-        json.dump(new_reminders, reminders_file)
-        print("Wrote {} new reminders to {}.".format(len(new_reminders), REMINDERS_FILE))
+    save_reminders(new_reminders)
 
 if __name__ == "__main__":
     main()
